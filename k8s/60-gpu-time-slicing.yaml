@@ -1,0 +1,30 @@
+# Share the single RTX 3090 between worker pods with NVIDIA time-slicing.
+# The device plugin advertises the GPU as `replicas` slots of nvidia.com/gpu.
+#
+# Important limits of time-slicing:
+#   * Compute is interleaved, not partitioned: concurrent pods slow each other.
+#   * VRAM is NOT partitioned: each pod loads its own copy of the weights, and
+#     one pod can exhaust memory for the others. MAX_ACTIVE_WORKERS in the
+#     gateway is the real guard; keep `replicas` equal to it.
+#   * MIG is not available on consumer GPUs such as the 3090.
+#
+# Install the device plugin with this config (Helm):
+#   helm repo add nvdp https://nvidia.github.io/k8s-device-plugin
+#   helm upgrade -i nvdp nvdp/nvidia-device-plugin -n kube-system \
+#     --set runtimeClassName=nvidia \
+#     --set config.name=nvidia-device-plugin-config
+# Then check:  kubectl describe node | grep nvidia.com/gpu   # expect 3
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: kube-system
+data:
+  config.yaml: |
+    version: v1
+    sharing:
+      timeSlicing:
+        renameByDefault: false
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 3

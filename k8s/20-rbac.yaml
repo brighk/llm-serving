@@ -1,0 +1,31 @@
+# The gateway may manage pods in llm-workers and nothing else: no secrets,
+# no other namespaces, no exec, no changes to its own permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: llm-gateway
+  namespace: llm-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: worker-manager
+  namespace: llm-workers
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: llm-gateway-worker-manager
+  namespace: llm-workers
+subjects:
+  - kind: ServiceAccount
+    name: llm-gateway
+    namespace: llm-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: worker-manager

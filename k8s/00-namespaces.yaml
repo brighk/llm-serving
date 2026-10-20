@@ -1,0 +1,18 @@
+# llm-system: gateway + Postgres. llm-workers: per-user model pods only.
+# Pod Security Admission "restricted" on the worker namespace rejects any pod
+# that runs as root, keeps capabilities, or mounts host paths.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-system
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-workers
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

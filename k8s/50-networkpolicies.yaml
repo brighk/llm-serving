@@ -1,0 +1,74 @@
+# k3s enforces NetworkPolicy out of the box (embedded kube-router controller).
+
+# ---- llm-workers: no traffic at all, except the gateway calling port 8080 ----
+# Workers have no egress: a compromised model server cannot reach the internet,
+# Postgres, the Kubernetes API, or another user's pod.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: llm-workers
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-workers
+  namespace: llm-workers
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: llm-worker}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: llm-system}
+          podSelector:
+            matchLabels: {app: llm-gateway}
+      ports: [{port: 8080, protocol: TCP}]
+---
+# ---- llm-system: deny ingress by default ----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: llm-system
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# Postgres accepts connections only from the gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-postgres
+  namespace: llm-system
+spec:
+  podSelector:
+    matchLabels: {app: postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: llm-gateway}
+      ports: [{port: 5432, protocol: TCP}]
+---
+# The gateway accepts traffic only from the Traefik ingress controller.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-gateway
+  namespace: llm-system
+spec:
+  podSelector:
+    matchLabels: {app: llm-gateway}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: traefik}
+      ports: [{port: 8000, protocol: TCP}]

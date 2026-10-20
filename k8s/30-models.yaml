@@ -1,0 +1,34 @@
+# Model weights live on the host in /srv/models and are mounted read-only into
+# every worker. A static PV is used instead of a hostPath volume in the pod
+# spec, because the "restricted" Pod Security profile forbids hostPath.
+#
+# On the host:
+#   sudo mkdir -p /srv/models && sudo cp model.gguf /srv/models/
+#   sha256sum /srv/models/model.gguf   # put this in MODEL_SHA256 (40-gateway.yaml)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: llm-models
+spec:
+  capacity: {storage: 100Gi}
+  accessModes: ["ReadOnlyMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /srv/models
+    type: Directory
+  claimRef:
+    namespace: llm-workers
+    name: models
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models
+  namespace: llm-workers
+spec:
+  accessModes: ["ReadOnlyMany"]
+  storageClassName: ""
+  volumeName: llm-models
+  resources:
+    requests: {storage: 100Gi}

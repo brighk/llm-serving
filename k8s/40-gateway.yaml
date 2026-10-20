@@ -1,0 +1,95 @@
+# Build and load the image into k3s (no registry needed):
+#   docker build -t llm-gateway:0.1.0 gateway/
+#   docker save llm-gateway:0.1.0 | sudo k3s ctr images import -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: llm-system
+data:
+  WORKER_NAMESPACE: llm-workers
+  WORKER_IMAGE: ghcr.io/ggml-org/llama.cpp:server-cuda
+  MODEL_FILE: model.gguf
+  MODEL_SHA256: ""            # set to `sha256sum /srv/models/model.gguf`
+  CONTEXT_SIZE: "8192"
+  MAX_ACTIVE_WORKERS: "3"     # pods that fit in 24 GB VRAM (7-8B Q4: about 3)
+  IDLE_TIMEOUT_S: "600"
+  REAPER_INTERVAL_S: "30"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  namespace: llm-system
+spec:
+  # Keep 1 replica: per-user locks and the GPU cap are held in process memory.
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: llm-gateway}
+  template:
+    metadata:
+      labels: {app: llm-gateway}
+    spec:
+      serviceAccountName: llm-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: gateway
+          image: llm-gateway:0.1.0
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: {name: gateway-config}
+          env:
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: postgres-auth, key: password}}
+            - name: DATABASE_URL
+              value: postgresql+asyncpg://llm:$(PGPASSWORD)@postgres.llm-system.svc:5432/llm
+          ports: [{containerPort: 8000, name: http}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway
+  namespace: llm-system
+spec:
+  selector: {app: llm-gateway}
+  ports: [{port: 80, targetPort: http}]
+---
+# Exposed through k3s's bundled Traefik. Add TLS before exposing beyond your LAN:
+# bearer tokens must never travel over plain HTTP.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: llm-gateway
+  namespace: llm-system
+spec:
+  rules:
+    - host: llm.home.arpa
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: llm-gateway, port: {number: 80}}
