@@ -86,6 +86,12 @@ def test_rejects_missing_and_bad_tokens(env):
     assert env["backend"].created == []  # no pod for unauthenticated traffic
 
 
+def test_api_docs_are_not_served(env):
+    c = env["client"]
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert c.get(path).status_code == 404
+
+
 def test_revoked_token_is_rejected(env):
     token = env["tokens"]["alice"]
     assert chat(env["client"], token).status_code == 200

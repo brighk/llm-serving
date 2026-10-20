@@ -77,6 +77,19 @@ spec:
   selector: {app: llm-gateway}
   ports: [{port: 80, targetPort: http}]
 ---
+# Traefik rejects oversized bodies (413) before they reach the gateway.
+# FastAPI reads the whole body before checking the token, so without this an
+# unauthenticated client could exhaust the gateway's memory. 4 MiB is well
+# above the largest valid request (50 messages x 32k characters).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: limit-body
+  namespace: llm-system
+spec:
+  buffering:
+    maxRequestBodyBytes: 4194304
+---
 # Exposed through k3s's bundled Traefik. Add TLS before exposing beyond your LAN:
 # bearer tokens must never travel over plain HTTP.
 apiVersion: networking.k8s.io/v1
@@ -84,6 +97,9 @@ kind: Ingress
 metadata:
   name: llm-gateway
   namespace: llm-system
+  annotations:
+    # <namespace>-<middleware name>@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: llm-system-limit-body@kubernetescrd
 spec:
   rules:
     - host: llm.home.arpa

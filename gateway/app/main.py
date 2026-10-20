@@ -101,7 +101,9 @@ def create_app(
             await http.aclose()
             await engine.dispose()
 
-    app = FastAPI(title="secure-llm-serving gateway", version="0.1.0", lifespan=lifespan)
+    # No /docs, /redoc or /openapi.json: they would be public, before any auth.
+    app = FastAPI(title="secure-llm-serving gateway", version="0.1.0", lifespan=lifespan,
+                  docs_url=None, redoc_url=None, openapi_url=None)
 
     async def current_user(request: Request, authorization: str | None = Header(default=None)) -> User:
         async with request.app.state.sessionmaker() as session:
